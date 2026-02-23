@@ -1,0 +1,13 @@
+build/
+logging/build/
+*.o
+*.a
+*.log
+compile_commands.json
+*~
+\#*\#
+.cache/
+.clangd/
+.projectile
+robot_server_example
+test_robot_protocol
