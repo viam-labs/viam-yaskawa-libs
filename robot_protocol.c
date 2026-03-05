@@ -3,7 +3,6 @@
 #include "logging.h"
 #include "platform_api.h"
 #include "protocol.h"
-#include "version.h"
 #include <errno.h>
 
 #define MAX_PAYLOAD_SIZE 40016
@@ -207,7 +206,7 @@ static int read_header(int socket, protocol_header_t *header) {
         }
         if (bytes_read != to_read)
             return bytes_read;
-        if (header->magic_number == PROTOCOL_MAGIC_NUMBER && header->version == PROTOCOL_VERSION) {
+        if (header->magic_number == PROTOCOL_MAGIC_NUMBER) {
             return sizeof(protocol_header_t);
         } else {
             void *begin = memchr((void *) header, needle[0], sizeof(protocol_header_t));
@@ -307,8 +306,34 @@ static void *tcp_thread_func(void *arg) {
                 ctx->client.last_command = time(NULL);
                 // Special handling for MSG_REGISTER_UDP_PORT (handled directly in protocol layer)
                 if (header.message_type == MSG_REGISTER_UDP_PORT) {
-                    if (header.payload_length == sizeof(udp_port_registration_payload_t) && payload != NULL) {
+                    if (header.payload_length >= sizeof(udp_port_registration_payload_t) && payload != NULL) {
                         udp_port_registration_payload_t *port_payload = (udp_port_registration_payload_t *) payload;
+
+                        // Check protocol version if client sent v2 payload (3+ bytes)
+                        if (header.payload_length >= sizeof(udp_port_registration_v2_payload_t)) {
+                            udp_port_registration_v2_payload_t *v2 = (udp_port_registration_v2_payload_t *) payload;
+                            if (v2->protocol_version != PROTOCOL_VERSION) {
+                                pr_error("[NET] Client %s:%d protocol version mismatch: client=%u server=%u",
+                                         ctx->client.peer_ip, ctx->client.peer_port, v2->protocol_version,
+                                         PROTOCOL_VERSION);
+                                error_payload_t err;
+                                memset(&err, 0, sizeof(err));
+                                err.error_code = -1;
+                                snprintf(err.message, sizeof(err.message),
+                                         "protocol version mismatch: client=%u server=%u", v2->protocol_version,
+                                         PROTOCOL_VERSION);
+                                send_command_response_context(ctx->client.socket, MSG_ERR_RESPONSE(err));
+                                platform_free(payload);
+                                payload = NULL;
+                                remove_client(ctx);
+                                continue;
+                            }
+                        } else {
+                            pr_info("[NET] WARNING: Client %s:%d registered UDP port without protocol version. "
+                                    "Update client to include protocol version in registration.",
+                                    ctx->client.peer_ip, ctx->client.peer_port);
+                        }
+
                         if (port_payload->udp_port > 0) {
                             // Register the UDP port
                             lock_take(ctx->client_mutex);
@@ -324,8 +349,8 @@ static void *tcp_thread_func(void *arg) {
                             send_command_response_context(ctx->client.socket, MSG_ERR_RESPONSE_INT(-1));
                         }
                     } else {
-                        pr_info("[NET] Client %s:%d sent invalid UDP port registration payload (expected %zu bytes, "
-                                "got %u)",
+                        pr_info("[NET] Client %s:%d sent invalid UDP port registration payload (expected >= %zu "
+                                "bytes, got %u)",
                                 ctx->client.peer_ip, ctx->client.peer_port, sizeof(udp_port_registration_payload_t),
                                 header.payload_length);
                         send_command_response_context(ctx->client.socket, MSG_ERR_RESPONSE_INT(-1));
@@ -347,13 +372,6 @@ static void *tcp_thread_func(void *arg) {
                     } else {
                         // No callback provided - send OK (no error info available)
                         send_command_response_context(ctx->client.socket, MSG_ERR_RESPONSE_INT(-1));
-                    }
-                } else if (header.message_type == MSG_GET_VERSION_INFO) {
-                    command_response_context_t *ver_ctx =
-                        allocate_response_context(sizeof(version_info_payload_t), MSG_VERSION_INFO);
-                    if (ver_ctx) {
-                        comms_get_version_info((version_info_payload_t *) ver_ctx->payload);
-                        send_command_response_context(ctx->client.socket, ver_ctx);
                     }
                 } else {
                     // Handle regular commands

@@ -65,8 +65,6 @@ typedef enum {
     MSG_FROM_CART_TO_JOINT = 0x17,
     MSG_GET_CART = 0x18,
     MSG_CHECK_GROUP = 0x19,
-    MSG_GET_VERSION_INFO = 0x1A,
-    MSG_VERSION_INFO = 0x1B,
 
 } message_type_t;
 
@@ -121,6 +119,12 @@ typedef PACK(struct {
 typedef PACK(struct {
     uint16_t udp_port; // 2 bytes - UDP port for status messages
 }) udp_port_registration_payload_t;
+
+// UDP port registration v2 payload structure (with protocol version)
+typedef PACK(struct {
+    uint16_t udp_port;        // 2 bytes - UDP port for status messages
+    uint8_t protocol_version; // 1 byte - client's protocol version
+}) udp_port_registration_v2_payload_t;
 
 // Trajectory point structure for move goals
 typedef PACK(struct {
@@ -225,13 +229,6 @@ typedef PACK(struct {
 typedef PACK(struct {
     int32_t group_id; // 4 bytes - goup id
 }) group_id_t;
-
-// Version info payload structure
-typedef PACK(struct {
-    uint8_t protocol_version;
-    char version_string[32];
-    char git_commit[16];
-}) version_info_payload_t;
 
 typedef struct {
     protocol_header_t *header;

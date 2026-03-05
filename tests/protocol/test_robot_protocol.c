@@ -5,7 +5,6 @@
 #include "protocol.h"
 #include "robot_protocol.h"
 #include "unity.h"
-#include "version.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -22,7 +21,7 @@
 // Test configuration
 #define TEST_TCP_PORT 27654
 #define TEST_UDP_PORT 27655
-#define TEST_TIMEOUT_MS 500
+#define TEST_TIMEOUT_MS 2000
 
 // Global test state
 static robot_server_ctx_t *test_network = NULL;
@@ -90,7 +89,7 @@ static int receive_response(int socket_fd, message_type_t *response_type, error_
     if (bytes_read != sizeof(header)) {
         return -1;
     }
-    if (header.magic_number != PROTOCOL_MAGIC_NUMBER || header.version != PROTOCOL_VERSION) {
+    if (header.magic_number != PROTOCOL_MAGIC_NUMBER) {
         return -1;
     }
     *response_type = (message_type_t) header.message_type;
@@ -217,7 +216,10 @@ void test_heartbeat_timeout_disconnection(void) {
     TEST_ASSERT_NOT_EQUAL(-1, result);
     platform_usleep(50000);
     TEST_ASSERT_EQUAL(1, test_robot.command_count);
-    platform_usleep((TEST_TIMEOUT_MS + 600) * 1000);
+    // Sleep long enough to guarantee timeout fires. Since time() has 1-second
+    // granularity, difftime returns whole seconds. We need difftime > timeout_seconds,
+    // so we must sleep at least ceil(timeout_seconds) + 1 seconds.
+    platform_usleep((TEST_TIMEOUT_MS + 2000) * 1000);
 
     // Should be disconnected due to timeout
     TEST_ASSERT_EQUAL(1, test_robot.disconnection_count);
@@ -1133,35 +1135,55 @@ void test_stop_motion(void) {
 }
 
 // Test: Version info request
-void test_version_info(void) {
+void test_udp_registration_with_matching_version(void) {
     // Connect TCP client
     int tcp_client = create_test_client();
     TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
-    platform_usleep(50000); // Wait for connection
+    platform_usleep(50000);
     TEST_ASSERT_EQUAL(1, test_robot.connection_count);
 
-    // Send MSG_GET_VERSION_INFO (no payload)
-    int result = send_protocol_message(tcp_client, MSG_GET_VERSION_INFO);
+    // Send v2 registration with correct protocol version
+    udp_port_registration_v2_payload_t v2_payload;
+    v2_payload.udp_port = 12345;
+    v2_payload.protocol_version = PROTOCOL_VERSION;
+
+    int result = send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &v2_payload, sizeof(v2_payload));
     TEST_ASSERT_NOT_EQUAL(-1, result);
 
-    // Receive response
-    protocol_header_t header;
-    ssize_t bytes_read = recv(tcp_client, &header, sizeof(header), 0);
-    TEST_ASSERT_EQUAL(sizeof(header), bytes_read);
-    TEST_ASSERT_EQUAL(PROTOCOL_MAGIC_NUMBER, header.magic_number);
-    TEST_ASSERT_EQUAL(PROTOCOL_VERSION, header.version);
-    TEST_ASSERT_EQUAL(MSG_VERSION_INFO, header.message_type);
-    TEST_ASSERT_EQUAL(sizeof(version_info_payload_t), header.payload_length);
+    message_type_t response_type;
+    result = receive_response(tcp_client, &response_type, NULL);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, response_type);
 
-    // Read version info payload
-    version_info_payload_t version_info;
-    bytes_read = recv(tcp_client, &version_info, sizeof(version_info), 0);
-    TEST_ASSERT_EQUAL(sizeof(version_info), bytes_read);
-    TEST_ASSERT_EQUAL(PROTOCOL_VERSION, version_info.protocol_version);
-    TEST_ASSERT_GREATER_THAN(0, strlen(version_info.version_string));
+    close(tcp_client);
+    platform_usleep(50000);
+}
 
-    pr_info("[TEST] Version info: protocol=%d, version=%s, commit=%s", version_info.protocol_version,
-            version_info.version_string, version_info.git_commit);
+void test_udp_registration_version_mismatch(void) {
+    // Connect TCP client
+    int tcp_client = create_test_client();
+    TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
+    platform_usleep(50000);
+    TEST_ASSERT_EQUAL(1, test_robot.connection_count);
+
+    // Send v2 registration with wrong protocol version
+    udp_port_registration_v2_payload_t v2_payload;
+    v2_payload.udp_port = 12345;
+    v2_payload.protocol_version = PROTOCOL_VERSION + 1; // Wrong version
+
+    int result = send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &v2_payload, sizeof(v2_payload));
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+
+    // Should receive error response
+    message_type_t response_type;
+    error_payload_t error_payload;
+    result = receive_response(tcp_client, &response_type, &error_payload);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_ERROR, response_type);
+
+    // Client should be disconnected — verify by waiting and checking
+    platform_usleep(100000);
+    TEST_ASSERT_EQUAL(1, test_robot.disconnection_count);
 
     close(tcp_client);
     platform_usleep(50000);
@@ -1216,7 +1238,8 @@ int main(void) {
     RUN_TEST(test_is_in_motion);
     RUN_TEST(test_stop_motion);
     RUN_TEST(test_goal_tracking_and_cancellation);
-    RUN_TEST(test_version_info);
+    RUN_TEST(test_udp_registration_with_matching_version);
+    RUN_TEST(test_udp_registration_version_mismatch);
     pthread_cancel(print_log_thread);
     logging_shutdown();
     return UNITY_END();
