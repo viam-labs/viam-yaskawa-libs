@@ -39,7 +39,11 @@ typedef struct {
 #endif
 
 // Message types
-typedef enum {
+typedef enum
+#ifdef __cplusplus
+    : uint8_t
+#endif
+{
     MSG_TEST_TRAJECTORY_COMMAND = 0x01,
     MSG_TURN_SERVO_POWER_ON = 0x02,
     MSG_HEARTBEAT = 0x03,
@@ -69,7 +73,11 @@ typedef enum {
 } message_type_t;
 
 // Goal states
-typedef enum {
+typedef enum
+#ifdef __cplusplus
+    : uint8_t
+#endif
+{
     GOAL_STATE_PENDING = 0,   // Goal accepted but not started
     GOAL_STATE_ACTIVE = 1,    // Goal in progress
     GOAL_STATE_SUCCEEDED = 2, // Goal reached successfully
