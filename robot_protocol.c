@@ -5,6 +5,11 @@
 #include "protocol.h"
 #include <errno.h>
 
+// Version mismatch policy: 0=ignore, 1=warn, 2=reject
+#ifndef COMMS_VERSION_MISMATCH
+#define COMMS_VERSION_MISMATCH 1
+#endif
+
 #define MAX_PAYLOAD_SIZE 40016
 
 int64_t get_timestamp_ms() {
@@ -309,10 +314,12 @@ static void *tcp_thread_func(void *arg) {
                     if (header.payload_length >= sizeof(udp_port_registration_payload_t) && payload != NULL) {
                         udp_port_registration_payload_t *port_payload = (udp_port_registration_payload_t *) payload;
 
+#if COMMS_VERSION_MISMATCH > 0
                         // Check protocol version if client sent v2 payload (3+ bytes)
                         if (header.payload_length >= sizeof(udp_port_registration_v2_payload_t)) {
                             udp_port_registration_v2_payload_t *v2 = (udp_port_registration_v2_payload_t *) payload;
                             if (v2->protocol_version != PROTOCOL_VERSION) {
+#if COMMS_VERSION_MISMATCH >= 2
                                 pr_error("[NET] Client %s:%d protocol version mismatch: client=%u server=%u",
                                          ctx->client.peer_ip, ctx->client.peer_port, v2->protocol_version,
                                          PROTOCOL_VERSION);
@@ -327,12 +334,28 @@ static void *tcp_thread_func(void *arg) {
                                 payload = NULL;
                                 remove_client(ctx);
                                 continue;
+#else
+                                pr_info("[NET] WARNING: Client %s:%d protocol version mismatch: client=%u server=%u",
+                                        ctx->client.peer_ip, ctx->client.peer_port, v2->protocol_version,
+                                        PROTOCOL_VERSION);
+#endif
                             }
                         } else {
+#if COMMS_VERSION_MISMATCH >= 2
+                            pr_error("[NET] Client %s:%d registered UDP port without protocol version (rejected)",
+                                     ctx->client.peer_ip, ctx->client.peer_port);
+                            send_command_response_context(ctx->client.socket, MSG_ERR_RESPONSE_INT(-1));
+                            platform_free(payload);
+                            payload = NULL;
+                            remove_client(ctx);
+                            continue;
+#else
                             pr_info("[NET] WARNING: Client %s:%d registered UDP port without protocol version. "
                                     "Update client to include protocol version in registration.",
                                     ctx->client.peer_ip, ctx->client.peer_port);
+#endif
                         }
+#endif
 
                         if (port_payload->udp_port > 0) {
                             // Register the UDP port

@@ -5,6 +5,9 @@ project(comms VERSION 1.0.0 LANGUAGES C)
 # Set to OFF when consumer provides their own platform implementation
 option(COMMS_PLATFORM_POSIX "Include POSIX platform/lock implementations" ON)
 
+# Version mismatch policy: 0=ignore, 1=warn, 2=reject
+set(COMMS_VERSION_MISMATCH "1" CACHE STRING "Version mismatch policy: 0=ignore, 1=warn, 2=reject")
+
 # Resolve the real directory for logging (follows symlinks)
 get_filename_component(LOGGING_REAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/logging" REALPATH)
 
@@ -40,6 +43,7 @@ target_include_directories(comms PUBLIC
     $<BUILD_INTERFACE:${LOGGING_REAL_DIR}/include>)
 
 target_compile_options(comms PRIVATE -Wall -Wextra -Werror -std=gnu99)
+target_compile_definitions(comms PRIVATE COMMS_VERSION_MISMATCH=${COMMS_VERSION_MISMATCH})
 
 if(COMMS_PLATFORM_POSIX)
     target_link_libraries(comms PRIVATE pthread m)
@@ -64,13 +68,30 @@ if(COMMS_BUILD_TESTS)
     target_compile_definitions(unity PUBLIC UNITY_INCLUDE_CONFIG_H)
     target_compile_options(unity PRIVATE -std=gnu99)
 
-    # Protocol tests
-    add_executable(test_robot_protocol
-        tests/protocol/test_robot_protocol.c
-        tests/protocol/mock_robot.c)
-    target_include_directories(test_robot_protocol PRIVATE tests/protocol)
-    target_link_libraries(test_robot_protocol PRIVATE comms unity pthread m)
-    add_test(NAME robot_protocol_tests COMMAND test_robot_protocol)
+    # Protocol tests — build all 3 version mismatch variants (ignore=0, warn=1, reject=2)
+    set(MISMATCH_NAMES ignore warn reject)
+    set(MISMATCH_VALUES 0 1 2)
+    foreach(MODE_NAME MODE_VALUE IN ZIP_LISTS MISMATCH_NAMES MISMATCH_VALUES)
+        # Library variant with this mismatch policy
+        add_library(comms_${MODE_NAME} STATIC ${ALL_SOURCES})
+        target_include_directories(comms_${MODE_NAME} PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+            $<BUILD_INTERFACE:${LOGGING_REAL_DIR}/include>)
+        target_compile_options(comms_${MODE_NAME} PRIVATE -Wall -Wextra -Werror -std=gnu99)
+        target_compile_definitions(comms_${MODE_NAME} PRIVATE COMMS_VERSION_MISMATCH=${MODE_VALUE})
+        if(COMMS_PLATFORM_POSIX)
+            target_link_libraries(comms_${MODE_NAME} PRIVATE pthread m)
+        endif()
+
+        # Test executable linked to the matching library variant
+        add_executable(test_robot_protocol_${MODE_NAME}
+            tests/protocol/test_robot_protocol.c
+            tests/protocol/mock_robot.c)
+        target_include_directories(test_robot_protocol_${MODE_NAME} PRIVATE tests/protocol)
+        target_link_libraries(test_robot_protocol_${MODE_NAME} PRIVATE comms_${MODE_NAME} unity pthread m)
+        target_compile_definitions(test_robot_protocol_${MODE_NAME} PRIVATE COMMS_VERSION_MISMATCH=${MODE_VALUE})
+        add_test(NAME robot_protocol_tests_${MODE_NAME} COMMAND test_robot_protocol_${MODE_NAME})
+    endforeach()
 
     # Logging tests
     add_executable(test_ring_buffer tests/logging/test_ring_buffer.c)

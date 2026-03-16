@@ -323,12 +323,13 @@ void test_udp_status_transmission(void) {
     platform_usleep(5000); // Wait for connection
     TEST_ASSERT_EQUAL(1, test_robot.connection_count);
 
-    udp_port_registration_payload_t port_payload;
+    udp_port_registration_v2_payload_t port_payload;
     message_type_t response_type;
     port_payload.udp_port = 12345;
+    port_payload.protocol_version = PROTOCOL_VERSION;
     int result =
         send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &port_payload, sizeof(port_payload));
-    TEST_ASSERT_EQUAL(sizeof(udp_port_registration_payload_t), result);
+    TEST_ASSERT_EQUAL(sizeof(udp_port_registration_v2_payload_t), result);
 
     // Receive response - should be OK since it's handled in protocol layer
     result = receive_response(tcp_client, &response_type, NULL);
@@ -487,11 +488,12 @@ void test_udp_port_registration_mandatory(void) {
     result = robot_protocol_send_position_velocity_torque(test_network, &test_status);
     TEST_ASSERT_EQUAL(0, result); // Should return 0 (no messages sent due to no registered port)
 
-    // Test 2: Register UDP port
-    udp_port_registration_payload_t port_payload;
+    // Test 2: Register UDP port (use v2 payload with protocol version for compatibility with all mismatch policies)
+    udp_port_registration_v2_payload_t port_payload;
     port_payload.udp_port = 12345;
+    port_payload.protocol_version = PROTOCOL_VERSION;
     result = send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &port_payload, sizeof(port_payload));
-    TEST_ASSERT_EQUAL(sizeof(udp_port_registration_payload_t), result);
+    TEST_ASSERT_EQUAL(sizeof(udp_port_registration_v2_payload_t), result);
 
     // Receive response - should be OK since it's handled in protocol layer
     result = receive_response(tcp_client, &response_type, &error_payload);
@@ -511,7 +513,7 @@ void test_udp_port_registration_mandatory(void) {
     // Test 5: Change UDP port registration to a different port
     port_payload.udp_port = 54321;
     result = send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &port_payload, sizeof(port_payload));
-    TEST_ASSERT_EQUAL(sizeof(udp_port_registration_payload_t), result);
+    TEST_ASSERT_EQUAL(sizeof(udp_port_registration_v2_payload_t), result);
 
     result = receive_response(tcp_client, &response_type, &error_payload);
     TEST_ASSERT_EQUAL(0, result);
@@ -1174,16 +1176,58 @@ void test_udp_registration_version_mismatch(void) {
     int result = send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &v2_payload, sizeof(v2_payload));
     TEST_ASSERT_NOT_EQUAL(-1, result);
 
-    // Should receive error response
     message_type_t response_type;
+#if COMMS_VERSION_MISMATCH >= 2
+    // REJECT mode: should receive error response and be disconnected
     error_payload_t error_payload;
     result = receive_response(tcp_client, &response_type, &error_payload);
     TEST_ASSERT_EQUAL(0, result);
     TEST_ASSERT_EQUAL(MSG_ERROR, response_type);
 
-    // Client should be disconnected — verify by waiting and checking
+    // Client should be disconnected
     platform_usleep(100000);
     TEST_ASSERT_EQUAL(1, test_robot.disconnection_count);
+#else
+    // WARN or IGNORE mode: should receive OK response (connection allowed)
+    result = receive_response(tcp_client, &response_type, NULL);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, response_type);
+#endif
+
+    close(tcp_client);
+    platform_usleep(50000);
+}
+
+void test_udp_registration_v1_payload(void) {
+    // Connect TCP client
+    int tcp_client = create_test_client();
+    TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
+    platform_usleep(50000);
+    TEST_ASSERT_EQUAL(1, test_robot.connection_count);
+
+    // Send v1 registration (no protocol version field)
+    udp_port_registration_payload_t v1_payload;
+    v1_payload.udp_port = 12345;
+
+    int result = send_protocol_message_with_payload(tcp_client, MSG_REGISTER_UDP_PORT, &v1_payload, sizeof(v1_payload));
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+
+    message_type_t response_type;
+#if COMMS_VERSION_MISMATCH >= 2
+    // REJECT mode: v1 payload (missing version) should be rejected
+    result = receive_response(tcp_client, &response_type, NULL);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_ERROR, response_type);
+
+    // Client should be disconnected
+    platform_usleep(100000);
+    TEST_ASSERT_EQUAL(1, test_robot.disconnection_count);
+#else
+    // WARN or IGNORE mode: v1 payload should be accepted
+    result = receive_response(tcp_client, &response_type, NULL);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, response_type);
+#endif
 
     close(tcp_client);
     platform_usleep(50000);
@@ -1240,6 +1284,7 @@ int main(void) {
     RUN_TEST(test_goal_tracking_and_cancellation);
     RUN_TEST(test_udp_registration_with_matching_version);
     RUN_TEST(test_udp_registration_version_mismatch);
+    RUN_TEST(test_udp_registration_v1_payload);
     pthread_cancel(print_log_thread);
     logging_shutdown();
     return UNITY_END();
