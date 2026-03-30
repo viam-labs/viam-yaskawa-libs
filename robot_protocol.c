@@ -522,7 +522,22 @@ void robot_protocol_stop(robot_server_ctx_t *ctx) {
     }
     ctx->running = 0;
 
-    // Close client connection if active
+    // Shut down the listen socket to unblock the tcp_thread's select(),
+    // but do NOT close it yet — the thread may still reference it in FD_SET.
+    if (ctx->tcp_socket >= 0) {
+        platform_shutdown(ctx->tcp_socket, SHUT_RDWR);
+    }
+
+    // Wait for threads to exit BEFORE closing sockets.
+    // This prevents FD_SET(-1) when tcp_thread loops after socket is closed.
+    if (ctx->tcp_thread != 0) {
+        platform_pthread_join(ctx->tcp_thread, NULL);
+    }
+    if (ctx->timeout_thread != 0) {
+        platform_pthread_join(ctx->timeout_thread, NULL);
+    }
+
+    // Now safe to close sockets — threads are no longer running
     lock_take(ctx->client_mutex);
     if (ctx->client.connected) {
         platform_close(ctx->client.socket);
@@ -531,21 +546,12 @@ void robot_protocol_stop(robot_server_ctx_t *ctx) {
     }
     lock_give(ctx->client_mutex);
     if (ctx->tcp_socket >= 0) {
-        platform_shutdown(ctx->tcp_socket, SHUT_RDWR);
         platform_close(ctx->tcp_socket);
         ctx->tcp_socket = -1;
     }
     if (ctx->udp_socket >= 0) {
-        platform_shutdown(ctx->udp_socket, SHUT_RDWR);
         platform_close(ctx->udp_socket);
         ctx->udp_socket = -1;
-    }
-    // Wait for threads
-    if (ctx->tcp_thread != 0) {
-        platform_pthread_join(ctx->tcp_thread, NULL);
-    }
-    if (ctx->timeout_thread != 0) {
-        platform_pthread_join(ctx->timeout_thread, NULL);
     }
     pr_info("[NET] Network server stopped");
 }
