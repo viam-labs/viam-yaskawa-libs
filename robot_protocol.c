@@ -238,7 +238,7 @@ static void *tcp_thread_func(void *arg) {
         FD_ZERO(&read_fds);
         FD_SET(ctx->tcp_socket, &read_fds);
         int nfd = ctx->tcp_socket;
-        if (ctx->client.connected) {
+        if (ctx->client.connected && ctx->client.socket >= 0) {
             FD_SET(ctx->client.socket, &read_fds);
             if (ctx->client.socket > nfd)
                 nfd = ctx->client.socket;
