@@ -261,6 +261,7 @@ typedef PACK(struct {
     double progress;             // 8 bytes - completion percentage (0.0 to 1.0)
     int64_t timestamp_ms;        // 8 bytes - status timestamp
     uint8_t state;               // 1 byte - current goal state (goal_state_t)
+    int32_t abort_code;          // 4 bytes - viam_error_code_t, set when state == GOAL_STATE_ABORTED
 }) goal_status_payload_t;
 
 // Cancel goal payload
