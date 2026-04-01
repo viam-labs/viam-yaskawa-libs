@@ -27,7 +27,9 @@
 #define MAX_AXES 6
 #define NUMBER_OF_DOF MAX_AXES // Number of degrees of freedom equals MAX_AXES
 
+#ifndef MAX_ALARM_COUNT
 #define MAX_ALARM_COUNT 16
+#endif
 // Duration type for trajectory timing
 #ifndef DURATION_T_DEFINED
 #define DURATION_T_DEFINED
