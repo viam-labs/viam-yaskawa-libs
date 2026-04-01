@@ -161,8 +161,8 @@ typedef PACK(struct {
     _Bool motion_possible;                // 1 byte - motion enabled
     _Bool in_motion;                      // 1 byte - motion status
     _Bool in_error;                       // 1 byte - error status
-    int error_codes[MAX_ALARM_COUNT + 1]; // (16+1)*4 = 68 bytes - error codes
-    int size;                             // 4 bytes - number of active error codes
+    int32_t error_codes[MAX_ALARM_COUNT + 1]; // (16+1)*4 = 68 bytes - error codes
+    int32_t size;                             // 4 bytes - number of active error codes
 }) robot_status_payload_t;
 
 // UDP port registration payload structure
@@ -267,8 +267,8 @@ typedef PACK(struct {
     uint32_t current_queue_size; // 4 bytes - Number of trajectory points in queue
     double progress;             // 8 bytes - completion percentage (0.0 to 1.0)
     int64_t timestamp_ms;        // 8 bytes - status timestamp
-    uint8_t state;               // 1 byte - current goal state (goal_state_t)
     int32_t abort_code;          // 4 bytes - viam_error_code_t, set when state == GOAL_STATE_ABORTED
+    uint8_t state;               // 1 byte - current goal state (goal_state_t)
 }) goal_status_payload_t;
 
 // Cancel goal payload
@@ -299,8 +299,8 @@ typedef struct {
 
 #define MSG_ERR_RESPONSE_INT(val)                                                                                      \
     ({                                                                                                                 \
-        int err = val;                                                                                                 \
-        MSG_ERR_RESPONSE(err);                                                                                         \
+        error_payload_t _ep = {.error_code = (int32_t)(val)};                                                         \
+        MSG_ERR_RESPONSE(_ep);                                                                                         \
     })
 
 // Validate and cast payload buffer to move_goal_payload_t
