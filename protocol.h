@@ -27,15 +27,14 @@
 #define MAX_AXES 6
 #define NUMBER_OF_DOF MAX_AXES // Number of degrees of freedom equals MAX_AXES
 
-#ifndef YRC1000
 #define MAX_ALARM_COUNT 16
 // Duration type for trajectory timing
+#ifndef DURATION_T_DEFINED
+#define DURATION_T_DEFINED
 typedef struct {
     int32_t sec;   // seconds
     int32_t nanos; // nanoseconds
 } duration_t;
-#else
-#include "utils.h"
 #endif
 
 // Message types
