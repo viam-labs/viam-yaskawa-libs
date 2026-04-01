@@ -18,7 +18,7 @@
 #include <stdint.h>
 
 #define PROTOCOL_MAGIC_NUMBER 0x56494152 // "VIAR" in little endian - used for protocol validation
-#define PROTOCOL_VERSION 3
+#define PROTOCOL_VERSION 4
 
 #define TCP_PORT 27654
 #define UDP_PORT 27655
@@ -144,10 +144,18 @@ typedef PACK(struct {
     int32_t error_code; // 4 bytes - viam_error_code_t
 }) error_payload_t;
 
+// Teach pendant operating mode
+typedef enum {
+    ROBOT_MODE_UNKNOWN = 0, // mode could not be determined
+    ROBOT_MODE_TEACH   = 1, // teach pendant in TEACH mode (manual jogging/programming)
+    ROBOT_MODE_PLAY    = 2, // teach pendant in PLAY mode (running jobs)
+    ROBOT_MODE_REMOTE  = 3, // teach pendant in REMOTE mode (external control)
+} robot_mode_t;
+
 // Robot status payload structure
 typedef PACK(struct {
     int64_t ts;                           // 8 bytes - timestamp
-    int mode;                             // 4 bytes - robot mode
+    int32_t mode;                         // 4 bytes - robot_mode_t
     _Bool e_stopped;                      // 1 byte - estop status
     _Bool drives_powered;                 // 1 byte - drive power status
     _Bool motion_possible;                // 1 byte - motion enabled
