@@ -107,7 +107,7 @@ typedef PACK(struct {
 // Named error codes sent in error responses. The client maps these to
 // human-readable strings; no free-form message is sent over the wire.
 typedef enum {
-    VIAM_ERROR_UNSPECIFIED          = 0,
+    VIAM_ERROR_OK                   = 0,
     VIAM_ERROR_NOT_REMOTE           = 1,  // controller not in REMOTE mode
     VIAM_ERROR_MAJOR_ALARM          = 2,  // major alarm active, cannot be reset remotely
     VIAM_ERROR_ALARM_RESET_FAILED   = 3,  // alarm reset failed
@@ -116,28 +116,27 @@ typedef enum {
     VIAM_ERROR_GOAL_NOT_FOUND       = 6,  // goal not found or already complete
     VIAM_ERROR_NOT_IMPLEMENTED      = 7,  // command not implemented
     VIAM_ERROR_INTERNAL             = 8,  // unexpected internal error
-    // Motion-not-ready reasons (mirrors MotionNotReadyCode on the controller)
-    VIAM_ERROR_MOTION_ALARM         = 10,
-    VIAM_ERROR_MOTION_ERROR         = 11,
-    VIAM_ERROR_MOTION_ESTOP         = 12,
-    VIAM_ERROR_MOTION_NOT_PLAY      = 13,
-    VIAM_ERROR_MOTION_NOT_REMOTE    = 14,
-    VIAM_ERROR_MOTION_SERVO_OFF     = 15,
-    VIAM_ERROR_MOTION_HOLD          = 16,
-    VIAM_ERROR_MOTION_NOT_STARTED   = 17,
-    VIAM_ERROR_MOTION_WAITING       = 18,
-    VIAM_ERROR_MOTION_PFL_ACTIVE    = 19,
-    VIAM_ERROR_MOTION_INC_ERROR     = 20,
-    VIAM_ERROR_MOTION_OTHER_RUNNING = 21,
-    VIAM_ERROR_MOTION_OTHER_MODE    = 22,
-    VIAM_ERROR_MOTION_CYCLE_MODE    = 23,
-    VIAM_ERROR_MOTION_MAJOR_ALARM   = 24,
-    VIAM_ERROR_MOTION_ECO_MODE      = 25,
-    VIAM_ERROR_MOTION_SERVO_TIMEOUT = 26,
+    // Motion-not-ready reasons
+    VIAM_ERROR_MOTION_ALARM         = 9,
+    VIAM_ERROR_MOTION_ERROR         = 10,
+    VIAM_ERROR_MOTION_ESTOP         = 11,
+    VIAM_ERROR_MOTION_NOT_PLAY      = 12,
+    VIAM_ERROR_MOTION_SERVO_OFF     = 13,
+    VIAM_ERROR_MOTION_HOLD          = 14,
+    VIAM_ERROR_MOTION_NOT_STARTED   = 15,
+    VIAM_ERROR_MOTION_WAITING       = 16,
+    VIAM_ERROR_MOTION_PFL_ACTIVE    = 17,
+    VIAM_ERROR_MOTION_INC_ERROR     = 18,
+    VIAM_ERROR_MOTION_OTHER_RUNNING = 19,
+    VIAM_ERROR_MOTION_OTHER_MODE    = 20,
+    VIAM_ERROR_MOTION_CYCLE_MODE    = 21,
+    VIAM_ERROR_MOTION_MAJOR_ALARM   = 22,
+    VIAM_ERROR_MOTION_ECO_MODE      = 23,
+    VIAM_ERROR_MOTION_SERVO_TIMEOUT = 24,
     // Trajectory validation errors
-    VIAM_ERROR_TRAJ_AXIS_COUNT  = 27, // trajectory axis count doesn't match controller
-    VIAM_ERROR_TRAJ_START_POS   = 28, // trajectory start position doesn't match current position
-    VIAM_ERROR_TRAJ_SPEED       = 29, // trajectory velocity exceeds speed limit for an axis
+    VIAM_ERROR_TRAJ_AXIS_COUNT      = 25, // trajectory axis count doesn't match controller
+    VIAM_ERROR_TRAJ_START_POS       = 26, // trajectory start position doesn't match current position
+    VIAM_ERROR_TRAJ_SPEED           = 27, // trajectory velocity exceeds speed limit for an axis
 } viam_error_code_t;
 
 // Error response payload — carries a viam_error_code_t.
