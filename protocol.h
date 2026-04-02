@@ -138,6 +138,9 @@ typedef enum {
     VIAM_ERROR_TRAJ_AXIS_COUNT      = 25, // trajectory axis count doesn't match controller
     VIAM_ERROR_TRAJ_START_POS       = 26, // trajectory start position doesn't match current position
     VIAM_ERROR_TRAJ_SPEED           = 27, // trajectory velocity exceeds speed limit for an axis
+    VIAM_ERROR_TRAJ_INVALID_GROUP   = 28, // group index out of range
+    VIAM_ERROR_TRAJ_NOT_ROBOT_GROUP = 29, // control group is not a robot/arm
+    VIAM_ERROR_TRAJ_EMPTY           = 30, // trajectory is NULL or too short
 } viam_error_code_t;
 
 // Error response payload — carries a viam_error_code_t.
