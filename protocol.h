@@ -18,7 +18,7 @@
 #include <stdint.h>
 
 #define PROTOCOL_MAGIC_NUMBER 0x56494152 // "VIAR" in little endian - used for protocol validation
-#define PROTOCOL_VERSION 4
+#define PROTOCOL_VERSION 5
 
 #define TCP_PORT 27654
 #define UDP_PORT 27655
@@ -105,47 +105,14 @@ typedef PACK(struct {
     double position_corrected[MAX_AXES]; // 8 * 8 = 64 bytes
 }) status_payload_t;
 
-// Named error codes sent in error responses. The client maps these to
-// human-readable strings; no free-form message is sent over the wire.
-typedef enum {
-    VIAM_ERROR_OK                   = 0,
-    VIAM_ERROR_NOT_REMOTE           = 1,  // controller not in REMOTE mode
-    VIAM_ERROR_MAJOR_ALARM          = 2,  // major alarm active, cannot be reset remotely
-    VIAM_ERROR_ALARM_RESET_FAILED   = 3,  // alarm reset failed
-    VIAM_ERROR_SERVO_POWER          = 4,  // servo power cannot be turned on
-    VIAM_ERROR_INVALID_PAYLOAD      = 5,  // malformed or unexpected payload
-    VIAM_ERROR_GOAL_NOT_FOUND       = 6,  // goal not found or already complete
-    VIAM_ERROR_NOT_IMPLEMENTED      = 7,  // command not implemented
-    VIAM_ERROR_INTERNAL             = 8,  // unexpected internal error
-    // Motion-not-ready reasons
-    VIAM_ERROR_MOTION_ALARM         = 9,
-    VIAM_ERROR_MOTION_ERROR         = 10,
-    VIAM_ERROR_MOTION_ESTOP         = 11,
-    VIAM_ERROR_MOTION_NOT_PLAY      = 12,
-    VIAM_ERROR_MOTION_SERVO_OFF     = 13,
-    VIAM_ERROR_MOTION_HOLD          = 14,
-    VIAM_ERROR_MOTION_NOT_STARTED   = 15,
-    VIAM_ERROR_MOTION_WAITING       = 16,
-    VIAM_ERROR_MOTION_PFL_ACTIVE    = 17,
-    VIAM_ERROR_MOTION_INC_ERROR     = 18,
-    VIAM_ERROR_MOTION_OTHER_RUNNING = 19,
-    VIAM_ERROR_MOTION_OTHER_MODE    = 20,
-    VIAM_ERROR_MOTION_CYCLE_MODE    = 21,
-    VIAM_ERROR_MOTION_MAJOR_ALARM   = 22,
-    VIAM_ERROR_MOTION_ECO_MODE      = 23,
-    VIAM_ERROR_MOTION_SERVO_TIMEOUT = 24,
-    // Trajectory validation errors
-    VIAM_ERROR_TRAJ_AXIS_COUNT      = 25, // trajectory axis count doesn't match controller
-    VIAM_ERROR_TRAJ_START_POS       = 26, // trajectory start position doesn't match current position
-    VIAM_ERROR_TRAJ_SPEED           = 27, // trajectory velocity exceeds speed limit for an axis
-    VIAM_ERROR_TRAJ_INVALID_GROUP   = 28, // group index out of range
-    VIAM_ERROR_TRAJ_NOT_ROBOT_GROUP = 29, // control group is not a robot/arm
-    VIAM_ERROR_TRAJ_EMPTY           = 30, // trajectory is NULL or too short
-} viam_error_code_t;
+// Max length of human-readable error message strings sent over the wire.
+#define VIAM_ERROR_MESSAGE_MAX_LEN 128
 
-// Error response payload — carries a viam_error_code_t.
+// Error response payload — carries a numeric error code and a human-readable message.
+// The message is populated by the controller; the client uses it directly for display.
 typedef PACK(struct {
-    int32_t error_code; // 4 bytes - viam_error_code_t
+    int32_t error_code;                        // 4 bytes - viam_error_code_t
+    char message[VIAM_ERROR_MESSAGE_MAX_LEN];  // 128 bytes - null-terminated error description
 }) error_payload_t;
 
 // Teach pendant operating mode
@@ -271,8 +238,9 @@ typedef PACK(struct {
     uint32_t current_queue_size; // 4 bytes - Number of trajectory points in queue
     double progress;             // 8 bytes - completion percentage (0.0 to 1.0)
     int64_t timestamp_ms;        // 8 bytes - status timestamp
-    int32_t abort_code;          // 4 bytes - viam_error_code_t, set when state == GOAL_STATE_ABORTED
-    uint8_t state;               // 1 byte - current goal state (goal_state_t)
+    int32_t abort_code;                               // 4 bytes - viam_error_code_t, set when state == GOAL_STATE_ABORTED
+    uint8_t state;                                    // 1 byte - current goal state (goal_state_t)
+    char abort_message[VIAM_ERROR_MESSAGE_MAX_LEN];  // 128 bytes - null-terminated abort description
 }) goal_status_payload_t;
 
 // Cancel goal payload
@@ -301,11 +269,6 @@ typedef struct {
         _ctx;                                                                                                          \
     })
 
-#define MSG_ERR_RESPONSE_INT(val)                                                                                      \
-    ({                                                                                                                 \
-        error_payload_t _ep = {.error_code = (int32_t)(val)};                                                         \
-        MSG_ERR_RESPONSE(_ep);                                                                                         \
-    })
 
 // Validate and cast payload buffer to move_goal_payload_t
 // Returns pointer to move_goal structure within payload buffer, or NULL if invalid
