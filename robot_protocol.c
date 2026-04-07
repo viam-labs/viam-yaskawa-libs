@@ -12,6 +12,12 @@
 
 #define MAX_PAYLOAD_SIZE 40016
 
+#define MSG_ERR_RESPONSE_INT(val)                                                                                      \
+    ({                                                                                                                 \
+        error_payload_t _ep = {.error_code = (int32_t)(val)};                                                         \
+        MSG_ERR_RESPONSE(_ep);                                                                                         \
+    })
+
 int64_t get_timestamp_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_TYPE, &ts);
