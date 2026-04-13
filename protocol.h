@@ -34,8 +34,8 @@
 #ifndef DURATION_T_DEFINED
 #define DURATION_T_DEFINED
 typedef struct {
-    int32_t sec;   // seconds
-    int32_t nanos; // nanoseconds
+    uint32_t sec;   // seconds
+    uint32_t nanos; // nanoseconds
 } duration_t;
 #endif
 
