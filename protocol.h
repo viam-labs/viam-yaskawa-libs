@@ -18,7 +18,7 @@
 #include <stdint.h>
 
 #define PROTOCOL_MAGIC_NUMBER 0x56494152 // "VIAR" in little endian - used for protocol validation
-#define PROTOCOL_VERSION 3
+#define PROTOCOL_VERSION 5
 
 #define TCP_PORT 27654
 #define UDP_PORT 27655
@@ -27,15 +27,16 @@
 #define MAX_AXES 6
 #define NUMBER_OF_DOF MAX_AXES // Number of degrees of freedom equals MAX_AXES
 
-#ifndef YRC1000
+#ifndef MAX_ALARM_COUNT
 #define MAX_ALARM_COUNT 16
+#endif
 // Duration type for trajectory timing
+#ifndef DURATION_T_DEFINED
+#define DURATION_T_DEFINED
 typedef struct {
-    int32_t sec;   // seconds
-    int32_t nanos; // nanoseconds
+    uint32_t sec;   // seconds
+    uint32_t nanos; // nanoseconds
 } duration_t;
-#else
-#include "utils.h"
 #endif
 
 // Message types
@@ -104,23 +105,35 @@ typedef PACK(struct {
     double position_corrected[MAX_AXES]; // 8 * 8 = 64 bytes
 }) status_payload_t;
 
-// Error message payload structure
+// Max length of human-readable error message strings sent over the wire.
+#define VIAM_ERROR_MESSAGE_MAX_LEN 128
+
+// Error response payload — carries a numeric error code and a human-readable message.
+// The message is populated by the controller; the client uses it directly for display.
 typedef PACK(struct {
-    int32_t error_code; // 4 bytes - error code
-    char message[252];  // 252 bytes - error message string (null-terminated)
+    int32_t error_code;                        // 4 bytes - viam_error_code_t
+    char message[VIAM_ERROR_MESSAGE_MAX_LEN];  // 128 bytes - null-terminated error description
 }) error_payload_t;
+
+// Teach pendant operating mode
+typedef enum {
+    ROBOT_MODE_UNKNOWN = 0, // mode could not be determined
+    ROBOT_MODE_TEACH   = 1, // teach pendant in TEACH mode (manual jogging/programming)
+    ROBOT_MODE_PLAY    = 2, // teach pendant in PLAY mode (running jobs)
+    ROBOT_MODE_REMOTE  = 3, // teach pendant in REMOTE mode (external control)
+} robot_mode_t;
 
 // Robot status payload structure
 typedef PACK(struct {
     int64_t ts;                           // 8 bytes - timestamp
-    int mode;                             // 4 bytes - robot mode
+    int32_t mode;                         // 4 bytes - robot_mode_t
     _Bool e_stopped;                      // 1 byte - estop status
     _Bool drives_powered;                 // 1 byte - drive power status
     _Bool motion_possible;                // 1 byte - motion enabled
     _Bool in_motion;                      // 1 byte - motion status
     _Bool in_error;                       // 1 byte - error status
-    int error_codes[MAX_ALARM_COUNT + 1]; // (16+1)*4 = 68 bytes - error codes
-    int size;                             // 4 bytes - number of active error codes
+    int32_t error_codes[MAX_ALARM_COUNT + 1]; // (16+1)*4 = 68 bytes - error codes
+    int32_t size;                             // 4 bytes - number of active error codes
 }) robot_status_payload_t;
 
 // UDP port registration payload structure
@@ -225,7 +238,9 @@ typedef PACK(struct {
     uint32_t current_queue_size; // 4 bytes - Number of trajectory points in queue
     double progress;             // 8 bytes - completion percentage (0.0 to 1.0)
     int64_t timestamp_ms;        // 8 bytes - status timestamp
-    uint8_t state;               // 1 byte - current goal state (goal_state_t)
+    int32_t abort_code;                               // 4 bytes - viam_error_code_t, set when state == GOAL_STATE_ABORTED
+    uint8_t state;                                    // 1 byte - current goal state (goal_state_t)
+    char abort_message[VIAM_ERROR_MESSAGE_MAX_LEN];  // 128 bytes - null-terminated abort description
 }) goal_status_payload_t;
 
 // Cancel goal payload
@@ -254,11 +269,6 @@ typedef struct {
         _ctx;                                                                                                          \
     })
 
-#define MSG_ERR_RESPONSE_INT(val)                                                                                      \
-    ({                                                                                                                 \
-        int err = val;                                                                                                 \
-        MSG_ERR_RESPONSE(err);                                                                                         \
-    })
 
 // Validate and cast payload buffer to move_goal_payload_t
 // Returns pointer to move_goal structure within payload buffer, or NULL if invalid
