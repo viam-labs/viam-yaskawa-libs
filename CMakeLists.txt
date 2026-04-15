@@ -93,6 +93,16 @@ if(COMMS_BUILD_TESTS)
         add_test(NAME robot_protocol_tests_${MODE_NAME} COMMAND test_robot_protocol_${MODE_NAME})
     endforeach()
 
+    # Fault injection tests
+    add_executable(test_fault_injection
+        tests/protocol/test_fault_injection.c
+        tests/protocol/mock_robot.c
+        tests/protocol/fault_inject.c)
+    target_include_directories(test_fault_injection PRIVATE tests/protocol)
+    target_link_libraries(test_fault_injection PRIVATE comms_warn unity pthread m)
+    target_compile_definitions(test_fault_injection PRIVATE COMMS_VERSION_MISMATCH=1)
+    add_test(NAME fault_injection_tests COMMAND test_fault_injection)
+
     # Logging tests
     add_executable(test_ring_buffer tests/logging/test_ring_buffer.c)
     target_link_libraries(test_ring_buffer PRIVATE comms unity pthread m)
