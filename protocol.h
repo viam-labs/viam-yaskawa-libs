@@ -18,14 +18,15 @@
 #include <stdint.h>
 
 #define PROTOCOL_MAGIC_NUMBER 0x56494152 // "VIAR" in little endian - used for protocol validation
-#define PROTOCOL_VERSION 5
+#define PROTOCOL_VERSION 6
 
 #define TCP_PORT 27654
 #define UDP_PORT 27655
 
 #define HEARTBEAT_INTERVAL_MS 10
-#define MAX_AXES 6
+#define MAX_AXES 8
 #define NUMBER_OF_DOF MAX_AXES // Number of degrees of freedom equals MAX_AXES
+#define MAX_GROUPS 5
 
 #ifndef MAX_ALARM_COUNT
 #define MAX_ALARM_COUNT 16
@@ -38,6 +39,28 @@ typedef struct {
     uint32_t nanos; // nanoseconds
 } duration_t;
 #endif
+
+// Group types
+typedef enum
+#ifdef __cplusplus
+    : uint8_t
+#endif
+{
+    GROUP_TYPE_ROBOT = 0,
+    GROUP_TYPE_BASE = 1,
+    GROUP_TYPE_STATION = 2,
+} group_type_t;
+
+// Axis types
+typedef enum
+#ifdef __cplusplus
+    : uint8_t
+#endif
+{
+    AXIS_TYPE_ROTARY = 0,
+    AXIS_TYPE_LINEAR = 1,
+    AXIS_TYPE_INVALID = 2,
+} axis_type_protocol_t;
 
 // Message types
 typedef enum
@@ -70,6 +93,8 @@ typedef enum
     MSG_FROM_CART_TO_JOINT = 0x17,
     MSG_GET_CART = 0x18,
     MSG_CHECK_GROUP = 0x19,
+    MSG_GET_CAPABILITIES = 0x1A, // Request server capabilities
+    MSG_CAPABILITIES = 0x1B,     // Server capabilities response
 
 } message_type_t;
 
@@ -97,12 +122,14 @@ typedef PACK(struct {
 
 // Status message payload structure
 typedef PACK(struct {
+    uint8_t group_index;                 // 1 byte - which group this status is for
+    uint8_t group_type;                  // 1 byte - group_type_t
     int64_t timestamp;                   // 8 bytes
-    uint8_t num_axes;                    // 1 byte
-    double position[MAX_AXES];           // 8 * 8 = 64 bytes
-    double velocity[MAX_AXES];           // 8 * 8 = 64 bytes
-    double torque[MAX_AXES];             // 8 * 8 = 64 bytes
-    double position_corrected[MAX_AXES]; // 8 * 8 = 64 bytes
+    uint8_t num_axes;                    // 1 byte - active axes (1-8)
+    double position[MAX_AXES];           // 8 * MAX_AXES bytes
+    double velocity[MAX_AXES];           // 8 * MAX_AXES bytes
+    double torque[MAX_AXES];             // 8 * MAX_AXES bytes
+    double position_corrected[MAX_AXES]; // 8 * MAX_AXES bytes
 }) status_payload_t;
 
 // Max length of human-readable error message strings sent over the wire.
@@ -126,6 +153,7 @@ typedef enum {
 // Robot status payload structure
 typedef PACK(struct {
     int64_t ts;                           // 8 bytes - timestamp
+    uint8_t group_index;                  // 1 byte - which group this status is for
     int32_t mode;                         // 4 bytes - robot_mode_t
     _Bool e_stopped;                      // 1 byte - estop status
     _Bool drives_powered;                 // 1 byte - drive power status
@@ -252,6 +280,24 @@ typedef PACK(struct {
 typedef PACK(struct {
     int32_t group_id; // 4 bytes - goup id
 }) group_id_t;
+
+// Per-group capability descriptor
+typedef PACK(struct {
+    uint8_t group_id;                    // 1 byte - MP_GRP_ID_TYPE value
+    uint8_t group_type;                  // 1 byte - group_type_t
+    uint8_t group_sub_index;             // 1 byte - R1=0,R2=1 / B1=0,B2=1 (for R-B pairing)
+    uint8_t num_axes;                    // 1 byte - active axes (1-8)
+    uint8_t axis_types[MAX_AXES];        // MAX_AXES bytes - axis_type_protocol_t per axis
+    int8_t base_axis_motion[MAX_AXES];   // MAX_AXES bytes - X=0,Y=1,Z=2,Rx=3,Ry=4,Rz=5,NOT_USED=-1
+    int32_t interpolation_period_us;     // 4 bytes - interpolation period in microseconds
+}) group_capability_t;
+
+// Server capabilities response
+typedef PACK(struct {
+    uint8_t protocol_version;                  // 1 byte
+    uint8_t num_groups;                        // 1 byte
+    group_capability_t groups[MAX_GROUPS];      // MAX_GROUPS * sizeof(group_capability_t)
+}) capabilities_payload_t;
 
 typedef struct {
     protocol_header_t *header;

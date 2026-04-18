@@ -343,7 +343,7 @@ void test_udp_status_transmission(void) {
 
     // Create a test status payload
     status_payload_t test_status;
-    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000);
+    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000, 0);
 
     // Test 1: Send status via the network library - should succeed with connected
     // client
@@ -484,7 +484,7 @@ void test_udp_port_registration_mandatory(void) {
 
     // Test 1: Try to send status without port registration - should fail (return 0 = no clients sent to)
     status_payload_t test_status;
-    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000);
+    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000, 0);
     result = robot_protocol_send_position_velocity_torque(test_network, &test_status);
     TEST_ASSERT_EQUAL(0, result); // Should return 0 (no messages sent due to no registered port)
 
@@ -506,7 +506,7 @@ void test_udp_port_registration_mandatory(void) {
 
     // Test 4: Test robot status as well
     robot_status_payload_t robot_status;
-    mock_robot_get_robot_status(&test_robot, &robot_status, time(NULL) * 1000);
+    mock_robot_get_robot_status(&test_robot, &robot_status, time(NULL) * 1000, 0);
     result = robot_protocol_send_robot_status(test_network, &robot_status);
     TEST_ASSERT_EQUAL(1, result); // Should return 1 (successfully sent to 1 client)
 

@@ -10,7 +10,9 @@
 #define COMMS_VERSION_MISMATCH 1
 #endif
 
-#define MAX_PAYLOAD_SIZE 40016
+// Largest payload: move_goal with 200 trajectory + 200 tolerance points
+#define MAX_TRAJECTORY_POINTS 200
+#define MAX_PAYLOAD_SIZE MOVE_GOAL_CALC_SIZE(MAX_TRAJECTORY_POINTS, MAX_TRAJECTORY_POINTS)
 
 #define MSG_ERR_RESPONSE_INT(val)                                                                                      \
     ({                                                                                                                 \
