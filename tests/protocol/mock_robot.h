@@ -81,6 +81,7 @@ move_goal_payload_t *mock_robot_echo_trajectory(mock_robot_t *robot, uint8_t gro
 int mock_robot_set_motion_mode(mock_robot_t *robot, uint8_t motion_mode);
 uint8_t mock_robot_is_in_motion(mock_robot_t *robot);
 uint8_t mock_robot_stop_motion(mock_robot_t *robot);
+uint8_t mock_robot_stop_group(mock_robot_t *robot, int group_index);
 
 // Goal tracking functions
 int32_t mock_robot_accept_goal(mock_robot_t *robot, const move_goal_payload_t *trajectory);

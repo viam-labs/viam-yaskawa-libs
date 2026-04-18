@@ -27,6 +27,7 @@
 #define MAX_AXES 8
 #define NUMBER_OF_DOF MAX_AXES // Number of degrees of freedom equals MAX_AXES
 #define MAX_GROUPS 5
+#define GROUP_ID_ALL (-1) // Use with group_id_t to target all groups (e.g. MSG_STOP_MOTION)
 
 #ifndef MAX_ALARM_COUNT
 #define MAX_ALARM_COUNT 16

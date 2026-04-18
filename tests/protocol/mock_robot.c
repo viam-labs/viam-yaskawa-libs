@@ -310,14 +310,36 @@ uint8_t mock_robot_is_in_motion(mock_robot_t *robot) {
 uint8_t mock_robot_stop_motion(mock_robot_t *robot) {
     uint8_t stopped = 0;
     for (int i = 0; i < robot->num_groups; i++) {
-        if (robot->groups[i].in_motion) {
+        _Bool has_active_goal = robot->groups[i].current_goal_id != 0 &&
+                                (robot->groups[i].current_goal_state == GOAL_STATE_ACTIVE ||
+                                 robot->groups[i].current_goal_state == GOAL_STATE_PENDING);
+        if (robot->groups[i].in_motion || has_active_goal) {
             robot->groups[i].in_motion = 0;
             robot->groups[i].trajectory_active = 0;
+            if (has_active_goal) {
+                robot->groups[i].current_goal_state = GOAL_STATE_ABORTED;
+            }
             stopped = 1;
         }
     }
-    pr_info("[MOCK] %s", stopped ? "Motion stopped" : "No motion to stop");
+    pr_info("[MOCK] %s", stopped ? "All motion stopped" : "No motion to stop");
     return stopped;
+}
+
+uint8_t mock_robot_stop_group(mock_robot_t *robot, int group_index) {
+    if (group_index < 0 || group_index >= robot->num_groups) {
+        pr_error("[MOCK] Invalid group_index %d for stop", group_index);
+        return 0;
+    }
+    mock_group_state_t *grp = &robot->groups[group_index];
+    grp->in_motion = 0;
+    grp->trajectory_active = 0;
+    if (grp->current_goal_id != 0 &&
+        (grp->current_goal_state == GOAL_STATE_ACTIVE || grp->current_goal_state == GOAL_STATE_PENDING)) {
+        grp->current_goal_state = GOAL_STATE_ABORTED;
+    }
+    pr_info("[MOCK] Stopped motion for group %d", group_index);
+    return 1;
 }
 
 // Goal tracking implementation
@@ -468,7 +490,9 @@ void mock_robot_on_disconnection(const char *client_ip, uint16_t client_port, vo
     (void) user_data;
     mock_robot_t *robot = (mock_robot_t *) user_data;
     robot->disconnection_count++;
-    pr_info("[SERVER] Client disconnected: %s:%d", client_ip, client_port);
+    // Stop all motion on disconnect — matches real controller on_disconnection behavior
+    mock_robot_stop_motion(robot);
+    pr_info("[SERVER] Client disconnected: %s:%d (all motion stopped)", client_ip, client_port);
 }
 
 static command_response_context_t *handle_get_capabilities(mock_robot_t *robot) {
@@ -612,12 +636,18 @@ command_response_context_t *mock_robot_handle_command(protocol_header_t *header,
         return motion_ctx;
     case MSG_STOP_MOTION:
         pr_info("[SERVER] Received STOP_MOTION");
-        if (header->payload_length != 0) {
-            pr_info("[SERVER] STOP_MOTION should have no payload");
+        if (header->payload_length != sizeof(group_id_t)) {
+            pr_info("[SERVER] STOP_MOTION payload size mismatch");
             err = -1;
             return MSG_ERR_RESPONSE(err);
         }
-        uint8_t motion_stopped = mock_robot_stop_motion(robot);
+        group_id_t *stop_gid = (group_id_t *) payload;
+        uint8_t motion_stopped;
+        if (stop_gid->group_id == GROUP_ID_ALL) {
+            motion_stopped = mock_robot_stop_motion(robot);
+        } else {
+            motion_stopped = mock_robot_stop_group(robot, stop_gid->group_id);
+        }
         command_response_context_t *stop_ctx = allocate_response_context(sizeof(boolean_payload_t), MSG_STOP_MOTION);
         if (stop_ctx == NULL) {
             err = -1;
@@ -693,13 +723,15 @@ command_response_context_t *mock_robot_get_error_info_callback(int32_t *error_co
     mock_robot_get_error_info(robot, temp_buffer, sizeof(temp_buffer));
 
     if (strlen(temp_buffer) > 0) {
-        command_response_context_t *ctx = allocate_response_context(strlen(temp_buffer), MSG_ERROR_INFO);
+        command_response_context_t *ctx = allocate_response_context(sizeof(error_payload_t), MSG_ERROR_INFO);
         if (ctx == NULL)
             return NULL;
 
         *error_code = -1;
-        strcpy(ctx->payload, temp_buffer);
-        ((char *) (ctx->payload))[strlen(temp_buffer)] = '\0';
+        error_payload_t *ep = (error_payload_t *) ctx->payload;
+        ep->error_code = -1;
+        strncpy(ep->message, temp_buffer, VIAM_ERROR_MESSAGE_MAX_LEN - 1);
+        ep->message[VIAM_ERROR_MESSAGE_MAX_LEN - 1] = '\0';
         return ctx;
     } else {
         return MSG_OK_RESPONSE();

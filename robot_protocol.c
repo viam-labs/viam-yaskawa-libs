@@ -540,9 +540,11 @@ void robot_protocol_stop(robot_server_ctx_t *ctx) {
     // This prevents FD_SET(-1) when tcp_thread loops after socket is closed.
     if (ctx->tcp_thread != 0) {
         platform_pthread_join(ctx->tcp_thread, NULL);
+        ctx->tcp_thread = 0;
     }
     if (ctx->timeout_thread != 0) {
         platform_pthread_join(ctx->timeout_thread, NULL);
+        ctx->timeout_thread = 0;
     }
 
     // Now safe to close sockets — threads are no longer running
