@@ -92,9 +92,8 @@ void mock_robot_update_goal_progress(mock_robot_t *robot);
 // Get status for UDP transmission (per-group)
 void mock_robot_get_status(mock_robot_t *robot, status_payload_t *status, int64_t timestamp, uint8_t group_index);
 
-// Get robot status for UDP transmission (per-group)
-void mock_robot_get_robot_status(mock_robot_t *robot, robot_status_payload_t *status, int64_t timestamp,
-                                 uint8_t group_index);
+// Get robot status for UDP transmission (per-controller)
+void mock_robot_get_robot_status(mock_robot_t *robot, robot_status_payload_t *status, int64_t timestamp);
 
 // Update simulation (call periodically)
 void mock_robot_update(mock_robot_t *robot, int64_t timestamp);

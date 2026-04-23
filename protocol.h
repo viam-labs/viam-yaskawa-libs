@@ -151,16 +151,15 @@ typedef enum {
     ROBOT_MODE_REMOTE  = 3, // teach pendant in REMOTE mode (external control)
 } robot_mode_t;
 
-// Robot status payload structure
+// Robot status payload structure (per-controller, not per-group)
 typedef PACK(struct {
-    int64_t ts;                           // 8 bytes - timestamp
-    uint8_t group_index;                  // 1 byte - which group this status is for
-    int32_t mode;                         // 4 bytes - robot_mode_t
-    _Bool e_stopped;                      // 1 byte - estop status
-    _Bool drives_powered;                 // 1 byte - drive power status
-    _Bool motion_possible;                // 1 byte - motion enabled
-    _Bool in_motion;                      // 1 byte - motion status
-    _Bool in_error;                       // 1 byte - error status
+    int64_t ts;                               // 8 bytes - timestamp
+    int32_t mode;                             // 4 bytes - robot_mode_t
+    uint8_t e_stopped;                        // 1 byte - estop status (0/1)
+    uint8_t drives_powered;                   // 1 byte - drive power status (0/1)
+    uint8_t motion_possible;                  // 1 byte - motion enabled (0/1)
+    uint8_t in_motion;                        // 1 byte - bitfield: bit N = group N is moving
+    uint8_t in_error;                         // 1 byte - error status (0/1)
     int32_t error_codes[MAX_ALARM_COUNT + 1]; // (16+1)*4 = 68 bytes - error codes
     int32_t size;                             // 4 bytes - number of active error codes
 }) robot_status_payload_t;

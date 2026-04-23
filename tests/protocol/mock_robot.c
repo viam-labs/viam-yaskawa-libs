@@ -195,10 +195,8 @@ int mock_robot_get_error_info(mock_robot_t *robot, char *error_buffer, size_t bu
     return 0;
 }
 
-void mock_robot_get_robot_status(mock_robot_t *robot, robot_status_payload_t *status, int64_t timestamp,
-                                 uint8_t group_index) {
+void mock_robot_get_robot_status(mock_robot_t *robot, robot_status_payload_t *status, int64_t timestamp) {
     status->ts = timestamp;
-    status->group_index = group_index;
     status->mode = robot->mode;
     status->e_stopped = robot->e_stopped;
     status->drives_powered = robot->drives_powered;
@@ -206,11 +204,12 @@ void mock_robot_get_robot_status(mock_robot_t *robot, robot_status_payload_t *st
     status->in_error = robot->in_error;
     status->size = robot->error_count;
 
-    // Per-group in_motion
-    if (group_index < robot->num_groups) {
-        status->in_motion = robot->groups[group_index].in_motion;
-    } else {
-        status->in_motion = 0;
+    // Build in_motion bitfield: bit N = group N is moving
+    status->in_motion = 0;
+    for (int g = 0; g < robot->num_groups; g++) {
+        if (robot->groups[g].in_motion) {
+            status->in_motion |= (1 << g);
+        }
     }
 
     for (int i = 0; i < MAX_ALARM_COUNT + 1 && i < robot->error_count; i++) {
@@ -579,6 +578,7 @@ command_response_context_t *mock_robot_handle_command(protocol_header_t *header,
         goal_accepted_payload_t *goal_accepted = (goal_accepted_payload_t *) goal_ctx->payload;
         goal_accepted->goal_id = goal_id;
         goal_accepted->timestamp_ms = get_timestamp_ms();
+        goal_accepted->num_trajectory_accepted = move_goal->trajectory_size;
         return goal_ctx;
     case MSG_ECHO_TRAJECTORY:
         pr_info("[SERVER] Received ECHO_TRAJECTORY");

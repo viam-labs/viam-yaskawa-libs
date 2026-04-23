@@ -58,7 +58,7 @@ static void status_loop() {
         }
         // Send robot status updates at a slower interval
         if (now - last_robot_status_time >= robot_status_interval_ms) {
-            mock_robot_get_robot_status(&g_robot, &robot_status, now, 0);
+            mock_robot_get_robot_status(&g_robot, &robot_status, now);
             int sent = robot_protocol_send_robot_status(g_ctx, &robot_status);
             if (sent > 0) {
                 static int robot_status_count = 0;

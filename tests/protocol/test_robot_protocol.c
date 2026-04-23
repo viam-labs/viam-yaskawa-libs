@@ -522,7 +522,7 @@ void test_udp_port_registration_mandatory(void) {
 
     // Test 4: Test robot status as well
     robot_status_payload_t robot_status;
-    mock_robot_get_robot_status(&test_robot, &robot_status, time(NULL) * 1000, 0);
+    mock_robot_get_robot_status(&test_robot, &robot_status, time(NULL) * 1000);
     result = robot_protocol_send_robot_status(test_network, &robot_status);
     TEST_ASSERT_EQUAL(1, result); // Should return 1 (successfully sent to 1 client)
 
