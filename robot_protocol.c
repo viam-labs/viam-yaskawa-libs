@@ -10,7 +10,9 @@
 #define COMMS_VERSION_MISMATCH 1
 #endif
 
-#define MAX_PAYLOAD_SIZE 40016
+// Largest payload: move_goal with 200 trajectory + 200 tolerance points
+#define MAX_TRAJECTORY_POINTS 200
+#define MAX_PAYLOAD_SIZE MOVE_GOAL_CALC_SIZE(MAX_TRAJECTORY_POINTS, MAX_TRAJECTORY_POINTS)
 
 #define MSG_ERR_RESPONSE_INT(val)                                                                                      \
     ({                                                                                                                 \
@@ -538,9 +540,11 @@ void robot_protocol_stop(robot_server_ctx_t *ctx) {
     // This prevents FD_SET(-1) when tcp_thread loops after socket is closed.
     if (ctx->tcp_thread != 0) {
         platform_pthread_join(ctx->tcp_thread, NULL);
+        ctx->tcp_thread = 0;
     }
     if (ctx->timeout_thread != 0) {
         platform_pthread_join(ctx->timeout_thread, NULL);
+        ctx->timeout_thread = 0;
     }
 
     // Now safe to close sockets — threads are no longer running

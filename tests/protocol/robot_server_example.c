@@ -44,7 +44,7 @@ static void status_loop() {
 
         // Send position/velocity/torque status updates at regular intervals
         if (now - last_status_time >= status_interval_ms) {
-            mock_robot_get_status(&g_robot, &status, now);
+            mock_robot_get_status(&g_robot, &status, now, 0);
             mock_robot_update(&g_robot, now);
             int sent = robot_protocol_send_position_velocity_torque(g_ctx, &status);
             if (sent > 0) {

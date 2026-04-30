@@ -26,6 +26,9 @@
 // Global test state
 static robot_server_ctx_t *test_network = NULL;
 static mock_robot_t test_robot;
+// Multi-group test state (used by dual-arm tests)
+static robot_server_ctx_t *test_multi_network = NULL;
+static mock_robot_t test_multi_robot;
 // Helper function to create a test client socket
 static int create_test_client(void) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -94,11 +97,20 @@ static int receive_response(int socket_fd, message_type_t *response_type, error_
     }
     *response_type = (message_type_t) header.message_type;
     if (header.payload_length > 0) {
+        // Use a stack buffer large enough for any response payload to avoid overflow.
+        // The caller's error_payload (error_payload_t, 132 bytes) may be smaller than
+        // the actual payload (e.g. goal_status_payload_t at 157 bytes).
+        uint8_t recv_buf[1024];
+        if (header.payload_length > sizeof(recv_buf)) {
+            return -1;
+        }
+        bytes_read = recv(socket_fd, recv_buf, header.payload_length, 0);
+        if (header.payload_length != bytes_read) {
+            return -1;
+        }
         if (error_payload) {
-            bytes_read = recv(socket_fd, error_payload, header.payload_length, 0);
-            if (header.payload_length != bytes_read) {
-                return -1;
-            }
+            size_t copy_len = header.payload_length < sizeof(*error_payload) ? header.payload_length : sizeof(*error_payload);
+            memcpy(error_payload, recv_buf, copy_len);
         }
     }
     return 0;
@@ -136,9 +148,13 @@ void setUp(void) {
 
 void tearDown(void) {
     if (test_network) {
-        robot_protocol_stop(test_network);
-        robot_protocol_destroy(test_network);
+        robot_protocol_destroy(test_network); // calls robot_protocol_stop internally
         test_network = NULL;
+    }
+    // Also clean up multi-group server if a multi-group test failed mid-way
+    if (test_multi_network) {
+        robot_protocol_destroy(test_multi_network);
+        test_multi_network = NULL;
     }
     // Give time for cleanup
     platform_usleep(100000); // 100ms
@@ -343,7 +359,7 @@ void test_udp_status_transmission(void) {
 
     // Create a test status payload
     status_payload_t test_status;
-    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000);
+    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000, 0);
 
     // Test 1: Send status via the network library - should succeed with connected
     // client
@@ -484,7 +500,7 @@ void test_udp_port_registration_mandatory(void) {
 
     // Test 1: Try to send status without port registration - should fail (return 0 = no clients sent to)
     status_payload_t test_status;
-    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000);
+    mock_robot_get_status(&test_robot, &test_status, time(NULL) * 1000, 0);
     result = robot_protocol_send_position_velocity_torque(test_network, &test_status);
     TEST_ASSERT_EQUAL(0, result); // Should return 0 (no messages sent due to no registered port)
 
@@ -1092,8 +1108,9 @@ void test_stop_motion(void) {
     TEST_ASSERT_EQUAL(0, result);
     TEST_ASSERT_EQUAL(MSG_OK, response_type);
 
-    // Test 2: Stop motion while in motion
-    result = send_protocol_message(tcp_client, MSG_STOP_MOTION);
+    // Test 2: Stop motion while in motion (group_id=-1 means stop all)
+    group_id_t stop_all = {.group_id = GROUP_ID_ALL};
+    result = send_protocol_message_with_payload(tcp_client, MSG_STOP_MOTION, &stop_all, sizeof(stop_all));
     TEST_ASSERT_NOT_EQUAL(-1, result);
 
     protocol_header_t header;
@@ -1121,7 +1138,7 @@ void test_stop_motion(void) {
     TEST_ASSERT_EQUAL(0, is_motion_payload.value); // Should be false (not in motion)
 
     // Test 4: Try to stop motion when already stopped
-    result = send_protocol_message(tcp_client, MSG_STOP_MOTION);
+    result = send_protocol_message_with_payload(tcp_client, MSG_STOP_MOTION, &stop_all, sizeof(stop_all));
     TEST_ASSERT_NOT_EQUAL(-1, result);
 
     bytes_read = recv(tcp_client, &header, sizeof(header), 0);
@@ -1233,6 +1250,301 @@ void test_udp_registration_v1_payload(void) {
     platform_usleep(50000);
 }
 
+// ---- Multi-group helpers ----
+
+// Build and send a move goal for the given group, return the accepted goal_id (or -1 on error)
+static int32_t send_move_goal_and_get_id(int tcp_client, uint32_t group_index, uint32_t traj_size, uint8_t num_axes) {
+    uint32_t tol_size = 0;
+    size_t payload_size = MOVE_GOAL_CALC_SIZE(traj_size, tol_size);
+    uint8_t *payload_data = (uint8_t *) malloc(payload_size);
+    if (!payload_data)
+        return -1;
+
+    move_goal_payload_t *move_goal = (move_goal_payload_t *) payload_data;
+    move_goal->number_of_axes_controlled = num_axes;
+    move_goal->group_index = group_index;
+    move_goal->trajectory_size = traj_size;
+
+    trajectory_point_t *traj = MOVE_GOAL_GET_TRAJECTORY(move_goal);
+    for (uint32_t i = 0; i < traj_size; i++) {
+        for (int j = 0; j < (int) num_axes; j++) {
+            traj[i].positions[j] = (double) (i + 1) * 10.0;
+            traj[i].velocities[j] = 5.0;
+            traj[i].accelerations[j] = 2.0;
+            traj[i].torque[j] = 1.0;
+        }
+        traj[i].time_from_start.sec = i + 1;
+        traj[i].time_from_start.nanos = 0;
+    }
+    uint32_t *tol_ptr = MOVE_GOAL_GET_TOLERANCE_SIZE_PTR(move_goal);
+    *tol_ptr = tol_size;
+
+    int result = send_protocol_message_with_payload(tcp_client, MSG_MOVE_GOAL, payload_data, payload_size);
+    free(payload_data);
+    if (result < 0)
+        return -1;
+
+    protocol_header_t hdr;
+    ssize_t bytes = recv(tcp_client, &hdr, sizeof(hdr), 0);
+    if (bytes != sizeof(hdr))
+        return -1;
+    if (hdr.message_type != MSG_GOAL_ACCEPTED)
+        return -1;
+
+    goal_accepted_payload_t accepted;
+    bytes = recv(tcp_client, &accepted, sizeof(accepted), 0);
+    if (bytes != sizeof(accepted))
+        return -1;
+    return accepted.goal_id;
+}
+
+// Query goal status, returns goal_state_t or -1 on error
+static int query_goal_state(int tcp_client, int32_t goal_id) {
+    cancel_goal_payload_t query;
+    query.goal_id = goal_id;
+    int result = send_protocol_message_with_payload(tcp_client, MSG_GET_GOAL_STATUS, &query, sizeof(query));
+    if (result < 0)
+        return -1;
+
+    protocol_header_t hdr;
+    ssize_t bytes = recv(tcp_client, &hdr, sizeof(hdr), 0);
+    if (bytes != sizeof(hdr))
+        return -1;
+    if (hdr.message_type != MSG_GOAL_STATUS)
+        return -1;
+
+    goal_status_payload_t status;
+    bytes = recv(tcp_client, &status, sizeof(status), 0);
+    if (bytes != sizeof(status))
+        return -1;
+    return (int) status.state;
+}
+
+// Poll until goal reaches target state or timeout (returns final state)
+// robot parameter: if non-NULL, calls mock_robot_update_goal_progress each poll
+static int poll_goal_until_ex(int tcp_client, int32_t goal_id, goal_state_t target, int max_polls,
+                              mock_robot_t *robot) {
+    int state = -1;
+    for (int i = 0; i < max_polls; i++) {
+        if (robot)
+            mock_robot_update_goal_progress(robot);
+        state = query_goal_state(tcp_client, goal_id);
+        if (state == (int) target || state < 0)
+            return state;
+        platform_usleep(100000); // 100ms between polls
+    }
+    return state;
+}
+
+static int poll_goal_until(int tcp_client, int32_t goal_id, goal_state_t target, int max_polls) {
+    return poll_goal_until_ex(tcp_client, goal_id, target, max_polls, NULL);
+}
+
+// ---- Dual-arm (multi-group) test scenarios ----
+
+// Tear down the single-group server from global setUp and start a 2-group server instead
+static void multi_setUp(void) {
+    // Destroy the single-group server that the global setUp created
+    if (test_network) {
+        robot_protocol_destroy(test_network);
+        test_network = NULL;
+    }
+    platform_usleep(100000);
+
+    uint8_t group_types[] = {GROUP_TYPE_ROBOT, GROUP_TYPE_ROBOT};
+    uint8_t group_axes[] = {6, 6};
+    mock_robot_init_multi(&test_multi_robot, 2, group_types, group_axes);
+
+    robot_server_config_t config = {.tcp_port = TEST_TCP_PORT,
+                                    .udp_port = TEST_UDP_PORT,
+                                    .connection_timeout_ms = TEST_TIMEOUT_MS,
+                                    .callbacks = {.on_connection = mock_robot_on_connection,
+                                                  .on_disconnection = mock_robot_on_disconnection,
+                                                  .handle_command = mock_robot_handle_command,
+                                                  .get_error_info = mock_robot_get_error_info_callback},
+                                    .user_data = &test_multi_robot};
+
+    test_multi_network = robot_protocol_create(&config);
+    TEST_ASSERT_NOT_NULL(test_multi_network);
+    int result = robot_protocol_start(test_multi_network);
+    TEST_ASSERT_EQUAL(0, result);
+    platform_usleep(100000);
+}
+
+static void multi_tearDown(void) {
+    if (test_multi_network) {
+        robot_protocol_destroy(test_multi_network);
+        test_multi_network = NULL;
+    }
+    platform_usleep(100000);
+}
+
+// Test: Sequential goals on two groups
+void test_multi_group_sequential_goals(void) {
+    multi_setUp();
+
+    int tcp_client = create_test_client();
+    TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
+    platform_usleep(50000);
+
+    // Power on
+    message_type_t rtype;
+    error_payload_t ep;
+    int result = send_protocol_message(tcp_client, MSG_TURN_SERVO_POWER_ON);
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+    result = receive_response(tcp_client, &rtype, &ep);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, rtype);
+
+    // Send goal to group 0
+    int32_t goal0 = send_move_goal_and_get_id(tcp_client, 0, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal0);
+    pr_info("[TEST] Group 0 goal accepted: %d", goal0);
+
+    // Poll until group 0 succeeds
+    int state0 = poll_goal_until_ex(tcp_client, goal0, GOAL_STATE_SUCCEEDED, 20, &test_multi_robot);
+    TEST_ASSERT_EQUAL(GOAL_STATE_SUCCEEDED, state0);
+
+    // Send goal to group 1
+    int32_t goal1 = send_move_goal_and_get_id(tcp_client, 1, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal1);
+    pr_info("[TEST] Group 1 goal accepted: %d", goal1);
+
+    // Poll until group 1 succeeds
+    int state1 = poll_goal_until_ex(tcp_client, goal1, GOAL_STATE_SUCCEEDED, 20, &test_multi_robot);
+    TEST_ASSERT_EQUAL(GOAL_STATE_SUCCEEDED, state1);
+
+    close(tcp_client);
+    platform_usleep(50000);
+    multi_tearDown();
+}
+
+// Test: Concurrent goals on two groups
+void test_multi_group_concurrent_goals(void) {
+    multi_setUp();
+
+    int tcp_client = create_test_client();
+    TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
+    platform_usleep(50000);
+
+    // Power on
+    message_type_t rtype;
+    error_payload_t ep;
+    int result = send_protocol_message(tcp_client, MSG_TURN_SERVO_POWER_ON);
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+    result = receive_response(tcp_client, &rtype, &ep);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, rtype);
+
+    // Send goal to group 0
+    int32_t goal0 = send_move_goal_and_get_id(tcp_client, 0, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal0);
+    pr_info("[TEST] Group 0 goal accepted: %d", goal0);
+
+    // Immediately send goal to group 1 (before group 0 finishes)
+    int32_t goal1 = send_move_goal_and_get_id(tcp_client, 1, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal1);
+    pr_info("[TEST] Group 1 goal accepted: %d (concurrent with group 0)", goal1);
+
+    // Poll both — both should reach SUCCEEDED
+    int state0 = poll_goal_until_ex(tcp_client, goal0, GOAL_STATE_SUCCEEDED, 20, &test_multi_robot);
+    TEST_ASSERT_EQUAL(GOAL_STATE_SUCCEEDED, state0);
+
+    int state1 = poll_goal_until_ex(tcp_client, goal1, GOAL_STATE_SUCCEEDED, 20, &test_multi_robot);
+    TEST_ASSERT_EQUAL(GOAL_STATE_SUCCEEDED, state1);
+
+    close(tcp_client);
+    platform_usleep(50000);
+    multi_tearDown();
+}
+
+// Test: Partial cancel — cancel group 0, group 1 still succeeds
+void test_multi_group_partial_cancel(void) {
+    multi_setUp();
+
+    int tcp_client = create_test_client();
+    TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
+    platform_usleep(50000);
+
+    // Power on
+    message_type_t rtype;
+    error_payload_t ep;
+    int result = send_protocol_message(tcp_client, MSG_TURN_SERVO_POWER_ON);
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+    result = receive_response(tcp_client, &rtype, &ep);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, rtype);
+
+    // Send goals to both groups
+    int32_t goal0 = send_move_goal_and_get_id(tcp_client, 0, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal0);
+
+    int32_t goal1 = send_move_goal_and_get_id(tcp_client, 1, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal1);
+
+    // Cancel group 0's goal
+    cancel_goal_payload_t cancel;
+    cancel.goal_id = goal0;
+    result = send_protocol_message_with_payload(tcp_client, MSG_CANCEL_GOAL, &cancel, sizeof(cancel));
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+    result = receive_response(tcp_client, &rtype, &ep);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, rtype);
+
+    // Verify group 0 is CANCELLED
+    int state0 = query_goal_state(tcp_client, goal0);
+    TEST_ASSERT_EQUAL(GOAL_STATE_CANCELLED, state0);
+
+    // Verify group 1 still reaches SUCCEEDED (not affected by group 0's cancel)
+    int state1 = poll_goal_until_ex(tcp_client, goal1, GOAL_STATE_SUCCEEDED, 20, &test_multi_robot);
+    TEST_ASSERT_EQUAL(GOAL_STATE_SUCCEEDED, state1);
+
+    close(tcp_client);
+    platform_usleep(50000);
+    multi_tearDown();
+}
+
+// Test: Disconnect aborts all active goals
+void test_multi_group_disconnect_aborts_all(void) {
+    multi_setUp();
+
+    int tcp_client = create_test_client();
+    TEST_ASSERT_NOT_EQUAL(-1, tcp_client);
+    platform_usleep(50000);
+
+    // Power on
+    message_type_t rtype;
+    error_payload_t ep;
+    int result = send_protocol_message(tcp_client, MSG_TURN_SERVO_POWER_ON);
+    TEST_ASSERT_NOT_EQUAL(-1, result);
+    result = receive_response(tcp_client, &rtype, &ep);
+    TEST_ASSERT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL(MSG_OK, rtype);
+
+    // Send goals to both groups
+    int32_t goal0 = send_move_goal_and_get_id(tcp_client, 0, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal0);
+
+    int32_t goal1 = send_move_goal_and_get_id(tcp_client, 1, 5, 6);
+    TEST_ASSERT_NOT_EQUAL(-1, goal1);
+
+    // Close TCP connection (simulates disconnect)
+    close(tcp_client);
+    platform_usleep(200000); // Wait for server to detect disconnect and call on_disconnection
+
+    // Verify both goals are ABORTED
+    // (Check directly via mock robot state since we can't query via TCP after disconnect)
+    TEST_ASSERT_EQUAL(GOAL_STATE_ABORTED, test_multi_robot.groups[0].current_goal_state);
+    TEST_ASSERT_EQUAL(GOAL_STATE_ABORTED, test_multi_robot.groups[1].current_goal_state);
+    TEST_ASSERT_EQUAL(0, test_multi_robot.groups[0].in_motion);
+    TEST_ASSERT_EQUAL(0, test_multi_robot.groups[1].in_motion);
+
+    // Verify disconnection was registered
+    TEST_ASSERT_EQUAL(1, test_multi_robot.disconnection_count);
+
+    multi_tearDown();
+}
+
 #define BUFFER_SIZE 8192
 
 static char log_buffer[BUFFER_SIZE];
@@ -1285,6 +1597,11 @@ int main(void) {
     RUN_TEST(test_udp_registration_with_matching_version);
     RUN_TEST(test_udp_registration_version_mismatch);
     RUN_TEST(test_udp_registration_v1_payload);
+    // Multi-group dual-arm tests (use their own setUp/tearDown)
+    RUN_TEST(test_multi_group_sequential_goals);
+    RUN_TEST(test_multi_group_concurrent_goals);
+    RUN_TEST(test_multi_group_partial_cancel);
+    RUN_TEST(test_multi_group_disconnect_aborts_all);
     pthread_cancel(print_log_thread);
     logging_shutdown();
     return UNITY_END();
