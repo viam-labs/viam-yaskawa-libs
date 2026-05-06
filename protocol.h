@@ -6,6 +6,10 @@
 // All multi-byte integers are assumed to be in native endianness
 // Version: 1
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef __GNUC__
 #define PACK(__Declaration__) __Declaration__ __attribute__((__packed__))
 #endif
@@ -328,5 +332,9 @@ move_goal_payload_t *move_goal_deep_copy(const move_goal_payload_t *src, void *d
 
 command_response_context_t *allocate_response_context(uint32_t length, uint8_t type);
 void free_command_response_context(command_response_context_t *ctx);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
 
 #endif // PROTOCOL_H
