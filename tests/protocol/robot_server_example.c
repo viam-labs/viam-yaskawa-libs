@@ -90,7 +90,32 @@ void *fn_print_log_thread(void *arg) {
     return NULL;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    uint16_t tcp_port = TCP_PORT;
+    uint16_t udp_port = UDP_PORT;
+    if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
+        printf("Usage: %s [tcp_port [udp_port]]\n", argv[0]);
+        printf("  Defaults: tcp_port=%d, udp_port=%d (from protocol.h)\n", TCP_PORT, UDP_PORT);
+        printf("  Override one or both to run multiple instances on the same host.\n");
+        return 0;
+    }
+    if (argc > 1) {
+        int v = atoi(argv[1]);
+        if (v <= 0 || v > 65535) {
+            fprintf(stderr, "invalid tcp_port: %s\n", argv[1]);
+            return 1;
+        }
+        tcp_port = (uint16_t) v;
+    }
+    if (argc > 2) {
+        int v = atoi(argv[2]);
+        if (v <= 0 || v > 65535) {
+            fprintf(stderr, "invalid udp_port: %s\n", argv[2]);
+            return 1;
+        }
+        udp_port = (uint16_t) v;
+    }
+
     if (ring_buffer_initialize(&rb, log_buffer, BUFFER_SIZE) != 0) {
         printf("Failed to initialize ring buffer\n");
         return 1;
@@ -126,22 +151,28 @@ int main() {
     memset(g_server_context.response_payload, 0, sizeof(g_server_context.response_payload));
 
     // Configure network
-    robot_server_config_t config = {.tcp_port = TCP_PORT,
-                                    .udp_port = UDP_PORT,
+    robot_server_config_t config = {.tcp_port = tcp_port,
+                                    .udp_port = udp_port,
                                     .connection_timeout_ms = 1000, // 1 second timeout
                                     .callbacks = {.on_connection = mock_robot_on_connection,
                                                   .on_disconnection = mock_robot_on_disconnection,
                                                   .handle_command = mock_robot_handle_command,
                                                   .get_error_info = mock_robot_get_error_info_callback},
                                     .user_data = g_server_context.robot};
+    pr_info("[SERVER] Listening on TCP %u, UDP %u", (unsigned) tcp_port, (unsigned) udp_port);
 
     // Create and start network server
     g_ctx = robot_protocol_create(&config);
     if (!g_ctx) {
+        // Mirror to stderr because the log thread may not have drained the ring buffer by
+        // the time main() returns on an early failure (EADDRINUSE etc. exit before the
+        // status loop starts).
+        fprintf(stderr, "[SERVER] Failed to create network server (tcp=%u, udp=%u)\n", (unsigned) tcp_port, (unsigned) udp_port);
         pr_error("[SERVER] Failed to create network server");
         return 1;
     }
     if (robot_protocol_start(g_ctx) < 0) {
+        fprintf(stderr, "[SERVER] Failed to start network server (tcp=%u, udp=%u)\n", (unsigned) tcp_port, (unsigned) udp_port);
         pr_error("[SERVER] Failed to start network server");
         robot_protocol_destroy(g_ctx);
         return 1;
