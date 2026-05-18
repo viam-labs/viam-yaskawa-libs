@@ -293,21 +293,28 @@ static void *tcp_thread_func(void *arg) {
                 void *payload = NULL;
                 if (header.payload_length <= MAX_PAYLOAD_SIZE) {
                     payload = platform_malloc(header.payload_length);
-                    bzero(payload, header.payload_length);
-                    if (payload) {
-                        uint32_t payload_received_bytes = 0;
-                        while (payload_received_bytes != header.payload_length) {
-                            int ret_recv = platform_recv(ctx->client.socket, (char *) payload + payload_received_bytes,
-                                                         header.payload_length - payload_received_bytes, MSG_WAITALL);
-                            if (ret_recv <= 0) {
-                                pr_error("Failed to read entire payload have %d expected %d errno %d",
-                                         payload_received_bytes, header.payload_length, errno);
-                            }
-                            payload_received_bytes += ret_recv;
-                        }
-
-                    } else {
+                    if (payload == NULL) {
                         send_command_response_context(ctx->client.socket, MSG_ERR_RESPONSE_INT(-1));
+                        continue;
+                    }
+                    bzero(payload, header.payload_length);
+                    uint32_t payload_received_bytes = 0;
+                    int read_failed = 0;
+                    while (payload_received_bytes < header.payload_length) {
+                        int ret_recv = platform_recv(ctx->client.socket, (char *) payload + payload_received_bytes,
+                                                     header.payload_length - payload_received_bytes, MSG_WAITALL);
+                        if (ret_recv <= 0) {
+                            pr_error("Failed to read entire payload have %u expected %u errno %d",
+                                     payload_received_bytes, header.payload_length, errno);
+                            read_failed = 1;
+                            break;
+                        }
+                        payload_received_bytes += (uint32_t) ret_recv;
+                    }
+                    if (read_failed) {
+                        platform_free(payload);
+                        payload = NULL;
+                        remove_client(ctx);
                         continue;
                     }
                 } else {
