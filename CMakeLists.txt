@@ -103,6 +103,20 @@ if(COMMS_BUILD_TESTS)
     target_compile_definitions(test_fault_injection PRIVATE COMMS_VERSION_MISMATCH=1)
     add_test(NAME fault_injection_tests COMMAND test_fault_injection)
 
+    # Recv-loop underflow regression test (task #6).
+    # Uses -Wl,--wrap=platform_recv to drive the buggy payload-read loop in
+    # tcp_thread_func with a stubbed recv returning -1 and asserts on the
+    # uint32_t underflow of payload_received_bytes. CTest TIMEOUT bounds the
+    # run as a belt-and-braces safety net on top of the in-stub iteration cap.
+    add_executable(test_recv_underflow
+        tests/protocol/test_recv_underflow.c)
+    target_include_directories(test_recv_underflow PRIVATE tests/protocol)
+    target_link_libraries(test_recv_underflow PRIVATE comms_warn unity pthread m)
+    target_compile_definitions(test_recv_underflow PRIVATE COMMS_VERSION_MISMATCH=1)
+    target_link_options(test_recv_underflow PRIVATE "LINKER:--wrap=platform_recv")
+    add_test(NAME recv_underflow_regression COMMAND test_recv_underflow)
+    set_tests_properties(recv_underflow_regression PROPERTIES TIMEOUT 10)
+
     # Logging tests
     add_executable(test_ring_buffer tests/logging/test_ring_buffer.c)
     target_link_libraries(test_ring_buffer PRIVATE comms unity pthread m)
