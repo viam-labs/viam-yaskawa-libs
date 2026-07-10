@@ -22,7 +22,7 @@ extern "C" {
 #include <stdint.h>
 
 #define PROTOCOL_MAGIC_NUMBER 0x56494152 // "VIAR" in little endian - used for protocol validation
-#define PROTOCOL_VERSION 6
+#define PROTOCOL_VERSION 7
 
 #define TCP_PORT 27654
 #define UDP_PORT 27655
@@ -301,6 +301,7 @@ typedef PACK(struct {
     uint8_t protocol_version;                  // 1 byte
     uint8_t num_groups;                        // 1 byte
     group_capability_t groups[MAX_GROUPS];      // MAX_GROUPS * sizeof(group_capability_t)
+    char build_id[256];                        // firmware build identifier (git-describe); "" / "unknown" if unstamped
 }) capabilities_payload_t;
 
 typedef struct {
