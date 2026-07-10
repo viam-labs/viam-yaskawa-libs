@@ -301,7 +301,7 @@ typedef PACK(struct {
     uint8_t protocol_version;                  // 1 byte
     uint8_t num_groups;                        // 1 byte
     group_capability_t groups[MAX_GROUPS];      // MAX_GROUPS * sizeof(group_capability_t)
-    char build_id[64];                         // firmware build identifier (git-describe); "" / "unknown" if unstamped
+    char build_id[256];                        // firmware build identifier (git-describe); "" / "unknown" if unstamped
 }) capabilities_payload_t;
 
 typedef struct {
